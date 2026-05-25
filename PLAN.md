@@ -844,6 +844,104 @@ In `telemetry.js` `initRealtime()`:
 
 ## Tracking
 
+---
+
+## Phase 9 — Richer Rule Criteria Enhancement
+
+> Reference: `implementation-plan.md` §11 Enhancements — Richer Rule Criteria
+> Implements: API selection filtering (method, path, source, IP, UA, payload, status range) + count-based sliding window evaluation
+
+### 9.1 Update Security Alert Rule DocType
+
+Add 14 new fields to the DocType JSON:
+
+| # | Field | Fieldtype | Options / Default | Notes |
+|---|---|---|---|---|
+| 1 | `filter_method` | Select | `Any\nGET\nPOST\nPUT\nDELETE\nPATCH` | default `Any` |
+| 2 | `filter_path_pattern` | Data | | glob or regex, empty = any path |
+| 3 | `filter_path_search_type` | Select | `glob\nregex` | default `glob` |
+| 4 | `filter_source` | Link → Log Ingest Adapter | | empty = any source |
+| 5 | `filter_ip_range` | Data | | comma-separated CIDRs/IPs, empty = any |
+| 6 | `filter_user_agent_pattern` | Data | | glob or regex, empty = any UA |
+| 7 | `filter_user_agent_search_type` | Select | `glob\nregex` | default `glob` |
+| 8 | `filter_min_payload` | Int | `0` | 0 = no minimum |
+| 9 | `filter_max_payload` | Int | `0` | 0 = no maximum |
+| 10 | `filter_status_min` | Int | `0` | 0 = no minimum |
+| 11 | `filter_status_max` | Int | `0` | 0 = no maximum |
+| 12 | `count_based` | Check | `0` | enable sliding window |
+| 13 | `evaluation_window` | Int | `5` | minutes |
+| 14 | `min_trigger_count` | Int | `1` | alerts triggered when count >= this |
+| 15 | `group_by` | Select | `none\nsource\nip\npath\nmethod` | default `none` |
+
+- [ ] **9.1.1** Add filter_method, filter_path_pattern, filter_path_search_type, filter_source fields
+- [ ] **9.1.2** Add filter_ip_range, filter_user_agent_pattern, filter_user_agent_search_type fields
+- [ ] **9.1.3** Add filter_min_payload, filter_max_payload, filter_status_min, filter_status_max fields
+- [ ] **9.1.4** Add count_based, evaluation_window, min_trigger_count, group_by fields
+- [ ] **9.1.5** Update field_order in DocType JSON
+- [ ] **9.1.6** Run `bench migrate` to apply schema changes
+
+### 9.2 Update Rule Evaluation Engine (utils.py)
+
+- [ ] **9.2.1** Update `get_cached_rules()` to fetch all new filter fields
+- [ ] **9.2.2** Write `_matches_filters(log, rule)` — applies filter pipeline (method, path glob/regex, source, IP CIDR, UA glob/regex, payload bounds, status bounds)
+- [ ] **9.2.3** Write `_match_ip_range(ip_str, ranges_str)` — parse comma-separated CIDRs via `ipaddress` module
+- [ ] **9.2.4** Write `_match_path_pattern(path, pattern, search_type)` — glob via `fnmatch`, regex via `re.match`
+- [ ] **9.2.5** Write `_match_user_agent_pattern(ua, pattern, search_type)` — same as path
+- [ ] **9.2.6** Write `_check_count_based_rule(rule, log)` — Redis INCR/EXPIRE, dedup flag
+- [ ] **9.2.7** Refactor `evaluate_rules_for_log()` — insert filter pipeline before metric check, branch to count-based when `count_based=1`
+- [ ] **9.2.8** Write `_build_group_by_value(rule, log)` — extract grouping dimension from log
+- [ ] **9.2.9** Write unit tests for filter matching functions (in bench console or via test script)
+
+### 9.3 Update Seed Rules (install.py)
+
+- [ ] **9.3.1** Update existing 3 seed rules to include new filter fields (empty/defaults)
+- [ ] **9.3.2** Add new seed rule: `"Suspicious POST Pattern"` — filter_method=POST, filter_path_pattern=`/api/v1/users/*`, count_based=1, evaluation_window=2, min_trigger_count=10, group_by=ip
+
+### 9.4 Update API Endpoints
+
+- [ ] **9.4.1** Update `api/alerts.py` `create_rule()` — accept all 15 new fields in request body
+- [ ] **9.4.2** Update `api/alerts.py` `list_rules()` — include all new fields in response
+- [ ] **9.4.3** Update `api/alerts.py` `toggle_rule()` — accept update for new fields (optional)
+
+### 9.5 Update Frontend Rule Form (AlertsPage.vue)
+
+- [ ] **9.5.1** Add collapsible "Advanced API Selection" section between metric and threshold fields
+- [ ] **9.5.2** Add method select (Any/GET/POST/PUT/DELETE/PATCH) with `newRule.filterMethod`
+- [ ] **9.5.3** Add path pattern input + search type toggle (glob/regex) with `newRule.filterPathPattern`/`newRule.filterPathSearchType`
+- [ ] **9.5.4** Add source select (populated from `telemetry.sources`) with `newRule.filterSource`
+- [ ] **9.5.5** Add IP range input (comma-separated CIDR) with `newRule.filterIpRange`
+- [ ] **9.5.6** Add user-agent pattern input + search type toggle with `newRule.filterUserAgentPattern`/`newRule.filterUserAgentSearchType`
+- [ ] **9.5.7** Add payload min/max inputs with `newRule.filterMinPayload`/`newRule.filterMaxPayload`
+- [ ] **9.5.8** Add status min/max inputs with `newRule.filterStatusMin`/`newRule.filterStatusMax`
+- [ ] **9.5.9** Add "Count-Based Evaluation" switch + evaluation window/min trigger count/group by fields
+- [ ] **9.5.10** Update `newRule` defaults object with all new fields
+- [ ] **9.5.11** Update `createRule()` to POST all new fields
+
+### 9.6 Update Frontend Rule Display Card
+
+- [ ] **9.6.1** Show active filter criteria as small badges below metric threshold in rule card (e.g., "POST", "/api/v1/users/*", "IP: 10.0.0.0/8")
+- [ ] **9.6.2** Show count-based config when applicable ("Window: 5min, Min: 10 by IP")
+- [ ] **9.6.3** Add empty/default state text when no filters active ("All traffic evaluated")
+
+### 9.7 Test the Enhancement
+
+- [ ] **9.7.1** Create rule with filter_method=POST, verify only POST logs trigger it
+- [ ] **9.7.2** Create rule with filter_path_pattern=`/api/v1/billing/*`, verify only billing paths trigger
+- [ ] **9.7.3** Create rule with filter_ip_range=`10.0.0.0/8`, verify only matching IPs trigger
+- [ ] **9.7.4** Create rule with filter_user_agent_pattern=`*curl*`, verify only curl UAs trigger
+- [ ] **9.7.5** Create rule with payload bounds, verify matching payload sizes trigger
+- [ ] **9.7.6** Create rule with status bounds, verify matching status codes trigger
+- [ ] **9.7.7** Create count-based rule, verify rolling window logic works (fast 5+ identical logs)
+- [ ] **9.7.8** Create count-based rule with group_by=ip, verify separate counters per IP
+- [ ] **9.7.9** Verify deduplication: same window doesn't create duplicate alerts
+- [ ] **9.7.10** Verify existing rules (no filters) continue to work identically
+- [ ] **9.7.11** Verify rule card displays filter criteria badges correctly
+- [ ] **9.7.12** Verify rule form inputs all POST and persist correctly
+
+---
+
+## Tracking
+
 | Phase | Total Tasks | Completed | Notes |
 |-------|------------|-----------|-------|
 | Phase 0 — Docker Setup | 18 | 16 | ✅ Complete |
@@ -855,7 +953,8 @@ In `telemetry.js` `initRealtime()`:
 | Phase 6 — Vue 3 Frontend | 40 | 0 | Second largest |
 | Phase 7 — Realtime | 6 | 0 | |
 | Phase 8 — Verification | 25 | 0 | |
-| **Total** | **159** | **16** | **10% complete** |
+| Phase 9 — Richer Rule Criteria | 51 | 0 | |
+| **Total** | **210** | **16** | **7.6% complete** |
 
 ---
 
