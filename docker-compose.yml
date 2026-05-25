@@ -1,0 +1,74 @@
+services:
+  mariadb:
+    image: docker.io/mariadb:11.8
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123}
+      MARIADB_AUTO_UPGRADE: 1
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    ports:
+      - "${MARIADB_PORT:-3306}:3306"
+    healthcheck:
+      test: mariadb-admin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD:-123}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  redis-cache:
+    image: docker.io/redis:alpine
+    volumes:
+      - redis-cache-data:/data
+    restart: unless-stopped
+
+  redis-queue:
+    image: docker.io/redis:alpine
+    volumes:
+      - redis-queue-data:/data
+    restart: unless-stopped
+
+  frappe:
+    image: docker.io/frappe/bench:latest
+    command: sleep infinity
+    environment:
+      SHELL: /bin/bash
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123}
+      BENCH_NAME: ${BENCH_NAME:-armure-apim}
+      SITE_NAME: ${SITE_NAME:-apim.localhost}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      FRAPPE_BRANCH: ${FRAPPE_BRANCH:-version-16}
+      DB_TYPE: ${DB_TYPE:-mariadb}
+    volumes:
+      - .:/workspace:cached
+      # Uncomment below if you need git cloning with SSH
+      # - ${HOME}/.ssh:/home/frappe/.ssh
+    working_dir: /workspace/development
+    ports:
+      - "${BENCH_WEB_PORT:-8000}:8000"
+      - "${BENCH_WEB_PORT2:-8001}:8001"
+      - "${BENCH_WEB_PORT3:-8002}:8002"
+      - "${BENCH_WEB_PORT4:-8003}:8003"
+      - "${BENCH_WEB_PORT5:-8004}:8004"
+      - "${BENCH_SOCKETIO_PORT:-9000}:9000"
+      - "${BENCH_SOCKETIO_PORT2:-9001}:9001"
+      - "${BENCH_SOCKETIO_PORT3:-9002}:9002"
+      - "${BENCH_SOCKETIO_PORT4:-9003}:9003"
+      - "${BENCH_SOCKETIO_PORT5:-9004}:9004"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mariadb-data:
+  redis-cache-data:
+  redis-queue-data:
