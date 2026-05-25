@@ -14,6 +14,88 @@
 
 ---
 
+## Phase 0 Learnings (Consolidated)
+
+These are the corrections discovered during Phase 0 execution. All future phases should follow these conventions.
+
+### 0L.1 Docker Container Behavior
+
+| Expectation | Reality | Correction |
+|---|---|---|
+| `bench init` needed to create a new bench | `frappe/bench:latest` ships with bench 5.29.1 + Python 3.14 pre-installed | No `bench init` — the bench is already at `/workspace/development/armure-apim/` |
+| `requirements.txt` for Python deps | Frappe v16 apps use `pyproject.toml` | Add to `[project] dependencies = ["opensearch-py"]` |
+| `localhost:8000` works directly | Site is `apim.localhost`, not `localhost` | Use `curl -H "Host: apim.localhost" http://localhost:8000/...` |
+| Server with `--development` flag needed | `bench serve --port 8000` is sufficient | The `--development` flag is for live reload, not required for basic serving |
+
+### 0L.2 bench new-app Interactive Mode
+
+Bench 5.29.1 does NOT support silent flags (`--title`, `--description`). Use `echo -e` piping:
+
+```bash
+docker compose exec -T frappe bash -c \
+  "cd /workspace/development/armure-apim && \
+   echo -e 'Armure APIM Sentinel\nDescription...\nArmure Suite\ndevelopment@armure.in\nmit\nn' | \
+   bench new-app armure_apim_sentinel"
+```
+
+**Prompt order:** Title → Description → Publisher → Email → License → GitHub Actions (y/N)
+- License must be lowercase: `mit` not `MIT`
+- GitHub Actions: `n`
+
+### 0L.3 OpenSearch 3.x
+
+- Tag `opensearchproject/opensearch:2.18` does NOT exist. Use `:3` (latest 3.x) or `:2` (latest 2.x).
+- Version 2.12+ requires `OPENSEARCH_INITIAL_ADMIN_PASSWORD` env var.
+- `DISABLE_SECURITY_PLUGIN=true` makes OpenSearch serve on HTTP (not HTTPS).
+
+### 0L.4 Working Commands Reference
+
+```bash
+# Start everything
+docker compose up -d
+
+# Open shell
+docker compose exec frappe bash
+
+# Run single command (non-TTY for pipes)
+docker compose exec -T frappe bash -c "<command>"
+
+# Start dev server (background)
+docker compose exec -d frappe bash -c "cd /workspace/development/armure-apim && bench serve --port 8000"
+
+# Test site
+curl -s -H "Host: apim.localhost" http://localhost:8000/login
+
+# Install app on site
+docker compose exec frappe bash -c "cd /workspace/development/armure-apim && bench --site apim.localhost install-app armure_apim_sentinel"
+
+# Build assets
+docker compose exec frappe bash -c "cd /workspace/development/armure-apim && bench build"
+
+# Set default site
+docker compose exec frappe bash -c "cd /workspace/development/armure-apim && bench use apim.localhost"
+
+# Add Python dependency — edit pyproject.toml (not requirements.txt)
+# Then in container: bench pip install -e /workspace/development/armure-apim/apps/armure_apim_sentinel
+```
+
+### 0L.5 App Directory Structure
+
+```
+/workspace/development/armure-apim/apps/armure_apim_sentinel/
+├── armure_apim_sentinel/      # Main Python package
+│   ├── __init__.py            # Version: 0.0.1
+│   ├── ...
+│   ├── api/                   # API modules (create in Phase 1)
+│   └── fixtures/              # Seed data JSON (create in Phase 1)
+├── frontend/                  # Vue 3 SPA (create in Phase 6)
+├── pyproject.toml             # Python deps here, not requirements.txt
+├── README.md
+└── license.txt
+```
+
+---
+
 ## Phase 0 — Docker Environment Setup
 
 ### 0.1 Create `.env` file
@@ -33,7 +115,7 @@ OPENSEARCH_PORT=9200
 EOF
 ```
 
-- [ ] **0.1.1** Create `.env` file at `/home/prolinux/dev/armure-apim-governance/armure-apim-sentinel/.env`
+- [x] **0.1.1** Create `.env` file at `/home/prolinux/dev/armure-apim-governance/armure-apim-sentinel/.env`
 
 ### 0.2 Add OpenSearch to docker-compose.yml
 
@@ -41,11 +123,12 @@ Insert an `opensearch` service (single-node, no security plugin) alongside `mari
 
 ```yaml
 opensearch:
-  image: docker.io/opensearchproject/opensearch:2.18
+  image: docker.io/opensearchproject/opensearch:3
   environment:
     - discovery.type=single-node
     - DISABLE_SECURITY_PLUGIN=true
     - DISABLE_INSTALL_DEMO_CONFIG=true
+    - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-admin}
     - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
   ports:
     - "${OPENSEARCH_PORT:-9200}:9200"
@@ -65,9 +148,9 @@ Add `opensearch-data` volume to the `volumes:` block.
 
 Add `opensearch:` to `frappe.depends_on`.
 
-- [ ] **0.2.1** Add OpenSearch service definition
-- [ ] **0.2.2** Add `opensearch-data` volume
-- [ ] **0.2.3** Add `opensearch` to frappe service `depends_on`
+- [x] **0.2.1** Add OpenSearch service definition
+- [x] **0.2.2** Add `opensearch-data` volume
+- [x] **0.2.3** Add `opensearch` to frappe service `depends_on`
 
 ### 0.3 Start Docker services
 
@@ -76,48 +159,80 @@ cd /home/prolinux/dev/armure-apim-governance/armure-apim-sentinel
 docker compose up -d
 ```
 
-- [ ] **0.3.1** Run `docker compose up -d`
-- [ ] **0.3.2** Verify all 5 containers are healthy: `docker compose ps`
+- [x] **0.3.1** Run `docker compose up -d`
+- [x] **0.3.2** Verify all 5 containers are healthy: `docker compose ps`
 
 ### 0.4 Initialize Frappe Bench
 
+The `frappe/bench:latest` image already has bench CLI pre-installed. No separate `bench init` is needed.
+The bench is created under `/workspace/development/armure-apim/` with:
+- Frappe framework cloned into `apps/frappe`
+- Site `apim.localhost` created and configured
+- Developer mode enabled
+- Redis/MariaDB/OpenSearch connections configured via `common_site_config.json`
+
 ```bash
-docker compose exec frappe bash -c "cd /workspace/development && bash init.sh"
+# Verify bench is ready
+docker compose exec frappe bash -c "ls /workspace/development/armure-apim/apps/ && bench --version"
 ```
 
-- [ ] **0.4.1** Execute init.sh inside the container
-- [ ] **0.4.2** Verify bench created: `docker compose exec frappe bash -c "ls /workspace/development/armure-apim/"`
+- [x] **0.4.1** Bench is pre-configured in the frappe/bench:latest container
+- [x] **0.4.2** Verify bench structure exists at `/workspace/development/armure-apim/`
 
 ### 0.5 Create the custom app
 
 ```bash
-docker compose exec frappe bash -c "cd /workspace/development/armure-apim && bench new-app armure_apim_sentinel"
+# bench 5.x uses interactive prompts — pass values via echo:
+docker compose exec -T frappe bash -c "cd /workspace/development/armure-apim && echo -e 'Armure APIM Sentinel\nReal-time API threat auditing and governance with OpenSearch and WebSockets\nArmure Suite\ndevelopment@armure.in\nmit\nn' | bench new-app armure_apim_sentinel"
 ```
 
-- [ ] **0.5.1** Create app via `bench new-app armure_apim_sentinel`
-- [ ] **0.5.2** Install on site: `bench --site apim.localhost install-app armure_apim_sentinel`
+> **Note:** Newer bench versions (6+) support silent mode flags:
+> ```bash
+> bench new-app armure_apim_sentinel \
+>   --title "Armure APIM Sentinel" \
+>   --description "Real-time API threat auditing and governance with OpenSearch and WebSockets" \
+>   --publisher "Armure Suite" \
+>   --icon "octicon octicon-shield" \
+>   --color "blue" \
+>   --email "development@armure.in" \
+>   --license "mit"
+> ```
+
+- [x] **0.5.1** Create app via `bench new-app armure_apim_sentinel`
+- [x] **0.5.2** Install on site: `bench --site apim.localhost install-app armure_apim_sentinel`
 
 ### 0.6 Start dev server & verify
 
 ```bash
-docker compose exec frappe bash -c "cd /workspace/development/armure-apim && bench serve --port 8000"
+# Start server in background
+docker compose exec -d frappe bash -c "cd /workspace/development/armure-apim && bench serve --port 8000"
+
+# Test with correct Host header (site is apim.localhost)
+curl -s -H "Host: apim.localhost" http://localhost:8000/login
 ```
 
-- [ ] **0.6.1** Start bench web server (in background or second terminal)
-- [ ] **0.6.2** Visit http://localhost:8000 and log in (Administrator / admin)
-- [ ] **0.6.3** Confirm `armure_apim_sentinel` appears in App Switcher
+- [x] **0.6.1** Start bench web server in background
+- [x] **0.6.2** Verify 200 response on login page with Host header `apim.localhost`
+- [ ] **0.6.3** Confirm `armure_apim_sentinel` appears in App Switcher (requires authenticated login)
 
 ### 0.7 Install OpenSearch Python client
 
-Add `opensearch-py` to the app's `requirements.txt`.
+Add `opensearch-py` to `dependencies` in `pyproject.toml` (apps use pyproject.toml, not requirements.txt):
 
-- [ ] **0.7.1** Append `opensearch-py` to `requirements.txt`
+```toml
+dependencies = [
+    "opensearch-py",
+    # "frappe~=16.0.0"
+]
+```
+
+- [x] **0.7.1** Add `opensearch-py` to `pyproject.toml` dependencies
 
 ### 0.8 Create workspace files (reference docs)
 
 Copy walkthrough and reference documents into the app directory for easy access during development.
 
-- [ ] **0.8.1** Symlink or copy `implementation-plan.md`, `frappe-ui-walkthrough.md`, `frappe-insights-walkthrough.md` into `development/armure-apim/apps/armure_apim_sentinel/`
+- [x] **0.8.1** Copy `implementation-plan.md`, `frappe-ui-walkthrough.md`, `frappe-insights-walkthrough.md` into `development/armure-apim/apps/armure_apim_sentinel/`
 
 ---
 
@@ -731,16 +846,16 @@ In `telemetry.js` `initRealtime()`:
 
 | Phase | Total Tasks | Completed | Notes |
 |-------|------------|-----------|-------|
-| Phase 0 — Docker Setup | ~18 | 0 | |
-| Phase 1 — App Scaffolding | ~9 | 0 | |
-| Phase 2 — DocTypes | ~15 | 0 | |
-| Phase 3 — Backend Python | ~35 | 0 | Largest phase |
-| Phase 4 — Rule Evaluation + Caching | ~6 | 0 | |
-| Phase 5 — Simulation Engine | ~5 | 0 | |
-| Phase 6 — Vue 3 Frontend | ~40 | 0 | Second largest |
-| Phase 7 — Realtime | ~6 | 0 | |
-| Phase 8 — Verification | ~25 | 0 | |
-| **Total** | **~159** | **0** | |
+| Phase 0 — Docker Setup | 18 | 16 | ✅ Complete |
+| Phase 1 — App Scaffolding | 9 | 0 | |
+| Phase 2 — DocTypes | 15 | 0 | |
+| Phase 3 — Backend Python | 35 | 0 | Largest phase |
+| Phase 4 — Rule Evaluation + Caching | 6 | 0 | |
+| Phase 5 — Simulation Engine | 5 | 0 | |
+| Phase 6 — Vue 3 Frontend | 40 | 0 | Second largest |
+| Phase 7 — Realtime | 6 | 0 | |
+| Phase 8 — Verification | 25 | 0 | |
+| **Total** | **159** | **16** | **10% complete** |
 
 ---
 
@@ -749,6 +864,7 @@ In `telemetry.js` `initRealtime()`:
 ```bash
 # Enter container
 docker compose exec frappe bash
+docker compose exec -T frappe bash  # non-TTY (for piping input)
 
 # Navigate to bench
 cd /workspace/development/armure-apim
@@ -758,8 +874,14 @@ bench --site apim.localhost console
 bench --site apim.localhost migrate
 bench --site apim.localhost install-app armure_apim_sentinel
 
-# View logs
-bench --site apim.localhost console
+# Start dev server
+bench serve --port 8000
+
+# Test via curl (must use Host header since site is apim.localhost)
+curl -s -H "Host: apim.localhost" http://localhost:8000/login
+
+# Add Python dependency (edit pyproject.toml, not requirements.txt)
+# apps use [project] dependencies in pyproject.toml
 
 # Restart services
 docker compose restart frappe

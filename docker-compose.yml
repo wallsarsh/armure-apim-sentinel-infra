@@ -32,6 +32,27 @@ services:
       - redis-queue-data:/data
     restart: unless-stopped
 
+  opensearch:
+    image: docker.io/opensearchproject/opensearch:3
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-admin}
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "${OPENSEARCH_PORT:-9200}:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
   frappe:
     image: docker.io/frappe/bench:latest
     command: sleep infinity
@@ -66,9 +87,12 @@ services:
         condition: service_started
       redis-queue:
         condition: service_started
+      opensearch:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   mariadb-data:
   redis-cache-data:
   redis-queue-data:
+  opensearch-data:
