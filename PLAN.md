@@ -958,7 +958,167 @@ Add 14 new fields to the DocType JSON:
 
 ---
 
-## Quick Reference
+### Phase 10 — Notification Engine
+
+> Reference: `implementation-plan.md` §12 Notification Engine
+> Implements: 4 new DocTypes, adapter-based notification dispatch, rate-limited queue with retry, audit logs, frontend notification management page
+
+### 10.1 Create Notification Module Package
+
+- [ ] **10.1.1** Create `notification/` package directory with `__init__.py`
+- [ ] **10.1.2** Create `notification/adapters/` subdirectory with `__init__.py`
+
+### 10.2 Adapter Base Class
+
+- [ ] **10.2.1** Write `notification/adapter_base.py` — abstract `NotificationAdapter` with `send()` and `validate_config()` methods
+
+### 10.3 Implement Concrete Adapters
+
+- [ ] **10.3.1** Write `notification/adapters/discord.py` — `DiscordAdapter` (webhook POST, embed support)
+- [ ] **10.3.2** Write `notification/adapters/slack.py` — `SlackAdapter` (webhook POST, block formatting)
+- [ ] **10.3.3** Write `notification/adapters/email.py` — `EmailAdapter` (SMTP via `smtplib` with TLS; fallback to `frappe.sendmail`)
+- [ ] **10.3.4** Write `notification/adapters/http.py` — `HTTPAdapter` (generic HTTP POST/GET with template-based body)
+- [ ] **10.3.5** Write stub `notification/adapters/teams.py` — `TeamsAdapter` (logs "not implemented")
+- [ ] **10.3.6** Write stub `notification/adapters/telegram.py` — `TelegramAdapter` (logs "not implemented")
+- [ ] **10.3.7** Write stub `notification/adapters/whatsapp.py` — `WhatsAppAdapter` (logs "not implemented")
+- [ ] **10.3.8** Write stub `notification/adapters/sms.py` — `SMSAdapter` (logs "not implemented")
+
+### 10.4 Create Notification Channel DocType
+
+- [ ] **10.4.1** Create `doctype/notification_channel/notification_channel.json` — fields: channel_name (Data, unique), channel_type (Select: 8 options), is_active (Check), rate_limit_per_minute (Int, default 60), config_json (Code/JSON)
+- [ ] **10.4.2** Create `doctype/notification_channel/notification_channel.py` — empty `class NotificationChannel(Document): pass`
+- [ ] **10.4.3** Set permissions: System Manager (full), All (read-only)
+
+### 10.5 Create Security Alert Rule Notification child DocType
+
+- [ ] **10.5.1** Create `doctype/security_alert_rule_notification/security_alert_rule_notification.json` — fields: channel (Link → Notification Channel), enabled (Check, default 1), parent, parentfield, parenttype
+- [ ] **10.5.2** Create `doctype/security_alert_rule_notification/security_alert_rule_notification.py` — empty `class SecurityAlertRuleNotification(Document): pass`
+- [ ] **10.5.3** Set permissions: System Manager (full)
+
+### 10.6 Add Child Table to Security Alert Rule
+
+- [ ] **10.6.1** Add `notifications` Table field (options: Security Alert Rule Notification) to `security_alert_rule.json`
+- [ ] **10.6.2** Update `field_order` in `security_alert_rule.json` — place notifications after section_evaluation/group_by
+- [ ] **10.6.3** Add link from Security Alert Rule → Notification Channel in `links` array
+
+### 10.7 Create Notification Queue Item DocType
+
+- [ ] **10.7.1** Create `doctype/notification_queue_item/notification_queue_item.json` — all fields per §12.2.3
+- [ ] **10.7.2** Create `doctype/notification_queue_item/notification_queue_item.py` — empty class
+- [ ] **10.7.3** Set permissions: System Manager (full), All (read-only)
+- [ ] **10.7.4** Add link to Alert Instance in `links` array
+
+### 10.8 Create Notification Log DocType
+
+- [ ] **10.8.1** Create `doctype/notification_log/notification_log.json` — all fields per §12.2.4
+- [ ] **10.8.2** Create `doctype/notification_log/notification_log.py` — empty class
+- [ ] **10.8.3** Set permissions: System Manager (full), All (read-only)
+- [ ] **10.8.4** Add links to Notification Channel and Alert Instance in `links` array
+
+### 10.9 Run Migration
+
+- [ ] **10.9.1** Run `bench migrate` to create all 4 new DocType tables
+
+### 10.10 Implement Notification Factory + Dispatcher
+
+- [ ] **10.10.1** Write `notification/__init__.py` — `get_adapter(channel_type)` factory function mapping type→class
+- [ ] **10.10.2** Write `notification/__init__.py` — `_build_notification_payload(alert_doc, channel, config)` — builds payload from alert data + channel template
+- [ ] **10.10.3** Write `notification/__init__.py` — `dispatch_notification(alert_doc, rule_name)` — queries rule child table, creates Queue Items, enqueues send
+
+### 10.11 Implement Queue Processing + Retry
+
+- [ ] **10.11.1** Write `notification/queue.py` — `send_queued_notification(queue_item_name)` — full send pipeline with rate limiting
+- [ ] **10.11.2** Write `notification/queue.py` — `retry_failed_notifications()` — cron function to retry failed items
+- [ ] **10.11.3** Write `notification/queue.py` — `_enforce_rate_limit(channel, max_per_minute)` — Redis sorted-set sliding window
+
+### 10.12 Wire Dispatch into Alert Creation Flow
+
+- [ ] **10.12.1** Update `tasks.py` — call `dispatch_notification()` after `frappe.new_doc("Alert Instance").insert()` (in the rule evaluation loop)
+- [ ] **10.12.2** Ensure dispatch is called for both metric-based and count-based triggered alerts
+
+### 10.13 Update hooks.py
+
+- [ ] **10.13.1** Add `*/5 * * * *` cron for `notification.queue.retry_failed_notifications`
+- [ ] **10.13.2** Add `permission_query_conditions` entries for Notification Channel, Notification Queue Item, Notification Log
+- [ ] **10.13.3** Add `has_permission` entries for all 3 new DocTypes
+
+### 10.14 Create API Endpoints
+
+- [ ] **10.14.1** Write `api/notifications.py` — `list_channels()` GET endpoint
+- [ ] **10.14.2** Write `api/notifications.py` — `create_channel()` POST endpoint with adapter config validation
+- [ ] **10.14.3** Write `api/notifications.py` — `toggle_channel()` POST endpoint
+- [ ] **10.14.4** Write `api/notifications.py` — `delete_channel()` POST endpoint
+- [ ] **10.14.5** Write `api/notifications.py` — `test_channel()` POST endpoint (sends test notification synchronously)
+- [ ] **10.14.6** Write `api/notifications.py` — `list_queue()` GET endpoint with status filter
+- [ ] **10.14.7** Write `api/notifications.py` — `retry_queue_item()` POST endpoint
+- [ ] **10.14.8** Write `api/notifications.py` — `list_notification_logs()` GET endpoint with pagination + filters
+
+### 10.15 Update install.py — Seed Channels
+
+- [ ] **10.15.1** Add `seed_default_channels()` to `install.py` — create "Email Alert" (type=email) and "Slack Alert" (type=slack) with placeholder configs
+- [ ] **10.15.2** Wire `seed_default_channels()` into `after_migrate()`
+
+### 10.16 Frontend — Create NotificationsPage.vue
+
+- [ ] **10.16.1** Create `frontend/src/pages/NotificationsPage.vue` with 3-tab layout (Channels / Queue / Logs)
+- [ ] **10.16.2** Implement Channels tab: card list with name, type badge, active toggle, test button, delete button
+- [ ] **10.16.3** Implement "Add Channel" form dialog: name + type selector → dynamic config fields (rendered based on selected type)
+- [ ] **10.16.4** Implement config validation hints shown inline (from adapter)
+- [ ] **10.16.5** Implement Queue tab: table of pending/failed items with status badge, retry count, next retry, action buttons
+- [ ] **10.16.6** Implement Logs tab: filterable audit log table with expandable rows (showing response JSON)
+- [ ] **10.16.7** Add loading, empty, and error states to all 3 tabs
+- [ ] **10.16.8** Wire all API endpoints to the frontend
+
+### 10.17 Frontend — Update Router + Sidebar
+
+- [ ] **10.17.1** Add Notifications route to `frontend/src/router.js`: `{ path: '/notifications', name: 'Notifications', component: () => import('./pages/NotificationsPage.vue') }`
+- [ ] **10.17.2** Add "Notifications" nav link to `AppSidebar.vue` with bell icon
+- [ ] **10.17.3** Add notification count badge to sidebar link (unresolved queue items count)
+
+### 10.18 Frontend — Add Rule-Channel Mapping to Rule Card
+
+- [ ] **10.18.1** Update rule card in `AlertsPage.vue` to show linked channel names as small badges
+- [ ] **10.18.2** Add channel selection multi-select in rule creation form (optional enhancement)
+- [ ] **10.18.3** Show "No channels configured" when a rule has no notification mappings
+
+### 10.19 Build + Test
+
+- [ ] **10.19.1** Run `bench migrate` (ensure all 4 new DocTypes + child table + Security Alert Rule changes are applied)
+- [ ] **10.19.2** Run `bench build --app armure_apim_sentinel` (frontend rebuild)
+- [ ] **10.19.3** Create a Notification Channel via API → verify it persists
+- [ ] **10.19.4** Test channel config validation: invalid config returns errors
+- [ ] **10.19.5** Test notification send: send test notification → verify adapter called
+- [ ] **10.19.6** Map a channel to a rule → trigger an alert → verify Queue Item created
+- [ ] **10.19.7** Test queue processing: verify queue item moves to sent/failed
+- [ ] **10.19.8** Test retry: force adapter failure → verify retry_count increments → cron picks up
+- [ ] **10.19.9** Test rate limiter: rapid sends beyond threshold are blocked
+- [ ] **10.19.10** Verify Notification Log records all sends with response data
+- [ ] **10.19.11** Verify frontend shows channels, queue, and logs correctly
+- [ ] **10.19.12** Verify existing alerts still work when no channels mapped (backward compat)
+- [ ] **10.19.13** Verify sidebar "Notifications" link renders and navigates correctly
+
+---
+
+## Tracking
+
+| Phase | Total Tasks | Completed | Notes |
+|-------|------------|-----------|-------|
+| Phase 0 — Docker Setup | 18 | 16 | ✅ Complete |
+| Phase 1 — App Scaffolding | 9 | 9 | ✅ Complete |
+| Phase 2 — DocTypes | 15 | 15 | ✅ Complete |
+| Phase 3 — Backend Python | 35 | 35 | ✅ Complete |
+| Phase 4 — Rule Evaluation + Caching | 6 | 6 | ✅ Complete |
+| Phase 5 — Simulation Engine | 5 | 5 | ✅ Complete |
+| Phase 6 — Vue 3 Frontend | 40 | 40 | ✅ Complete |
+| Phase 7 — Realtime | 6 | 6 | ✅ Complete |
+| Phase 8 — Verification | 25 | 25 | ✅ Complete |
+| Phase 9 — Richer Rule Criteria | 51 | 51 | ✅ Complete |
+| Phase 10 — Notification Engine | 81 | 0 | |
+| **Total** | **291** | **208** | **71.5% complete** |
+
+---
+
+# Quick Reference
 
 ```bash
 # Enter container
