@@ -151,6 +151,21 @@ Edit `.env` to customize:
 
 ---
 
+## Release Container Build Process
+
+cd build/docker
+
+``` bash
+docker build --no-cache \
+  --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
+  --build-arg=FRAPPE_BRANCH=version-16  \
+  --build-arg=SENTINEL_BRANCH=main  \
+  --build-arg=SENTINEL_REPO='https://[deploy-token-user]:[deploy-token-value]@gitlab.com/simplified-it/armure-apim/governance/armure-apim-sentinel.git'  \ 
+  --tag=armure-apim-sentinel:2.4   --file=images/production/Containerfile .
+
+docker image ls
+```
+
 ## Troubleshooting
 
 **"Can't connect to MariaDB"**  
