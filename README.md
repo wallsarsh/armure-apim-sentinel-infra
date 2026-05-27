@@ -166,6 +166,53 @@ docker build --no-cache \
 docker image ls
 ```
 
+## Release Container Test 
+
+``` bash
+cd build/docker
+
+cp example.env ../app/gitops/applications-prod.env
+sed -i "s/DB_PASSWORD=123/DB_PASSWORD='SecurePass'/g" ../app/gitops/applications-prod.env
+sed -i 's/DB_HOST=/DB_HOST=db/g' ../app/gitops/applications-prod.env
+sed -i 's/DB_PORT=/DB_PORT=3306/g' ../app/gitops/applications-prod.env
+sed -i 's/erp.example.com/apim.localhost/g' ../app/gitops/applications-prod.env
+
+Update ../app/gitops/applications-prod.env and add the following (replacing the ERPNEXT_VERSION variable):
+
+CUSTOM_IMAGE=armure-apim-sentinel
+CUSTOM_TAG=2.4
+PULL_POLICY=if_not_present
+
+
+docker compose --project-name applications-prod \
+  --env-file ../app/gitops/applications-prod.env \
+  -f compose.yaml \
+  -f overrides/compose.mariadb.yaml \
+  -f overrides/compose.redis.yaml \
+  -f overrides/compose.noproxy.yaml \
+  config > ../app/gitops/applications-prod.yaml
+
+
+cd ../app/gitops
+
+docker compose -f applications-prod.yaml up -d
+
+
+docker compose -f applications-prod.yaml exec backend \
+  bench new-site \
+  --mariadb-user-host-login-scope=% \
+  --db-root-username root \
+  --db-root-password 'SecurePass' \
+  --db-name armure_apim_sentinel \
+  --db-user armure_apim_sentinel \
+  --db-password 'APIDBPass' \
+  --db-host db \
+  --install-app armure_apim_sentinel \
+  --admin-password 'APIM#Pass' \
+  apim.localhost
+
+```
+
 ## Troubleshooting
 
 **"Can't connect to MariaDB"**  
